@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { createTask, deleteTask, getTodolist, listTasks, updateTask } from '../api/client'
 import { TaskItem } from '../components/TaskItem'
 import { StatusBadge } from '../components/StatusBadge'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { CreateTaskRequest, Task, Todolist, UpdateTaskRequest } from '../types/api'
 
 export function TodolistDetailPage() {
@@ -11,19 +12,23 @@ export function TodolistDetailPage() {
   const [todolist, setTodolist] = useState<Todolist | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [form, setForm] = useState<CreateTaskRequest & UpdateTaskRequest>({ title: '', description: '', status: 'pending' })
 
+  usePageTitle(todolist?.title ?? 'Todolist')
+
   const load = async () => {
     if (!id) return
     setLoading(true)
+    setError(null)
     try {
       const [tl, { data }] = await Promise.all([getTodolist(id), listTasks(id)])
       setTodolist(tl)
       setTasks(data)
     } catch (e) {
-      console.error(e)
+      setError(e instanceof Error ? e.message : 'Failed to load todolist')
     } finally {
       setLoading(false)
     }
@@ -33,30 +38,46 @@ export function TodolistDetailPage() {
 
   const handleCreate = async () => {
     if (!id || !form.title) return
-    await createTask(id, { title: form.title, description: form.description })
-    setShowModal(false)
-    setForm({ title: '', description: '', status: 'pending' })
-    load()
+    try {
+      await createTask(id, { title: form.title, description: form.description })
+      setShowModal(false)
+      setForm({ title: '', description: '', status: 'pending' })
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create task')
+    }
   }
 
   const handleUpdate = async () => {
     if (!editTask || !form.title) return
-    await updateTask(editTask.id, { title: form.title, description: form.description, status: form.status })
-    setEditTask(null)
-    load()
+    try {
+      await updateTask(editTask.id, { title: form.title, description: form.description, status: form.status })
+      setEditTask(null)
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update task')
+    }
   }
 
   const handleStatusChange = async (taskId: string, status: Task['status']) => {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
-    await updateTask(taskId, { title: task.title, description: task.description ?? '', status })
-    load()
+    try {
+      await updateTask(taskId, { title: task.title, description: task.description ?? '', status })
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update task status')
+    }
   }
 
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Delete this task?')) return
-    await deleteTask(taskId)
-    load()
+    try {
+      await deleteTask(taskId)
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to delete task')
+    }
   }
 
   const openEdit = (task: Task) => {
@@ -68,8 +89,25 @@ export function TodolistDetailPage() {
     return <div className="flex justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>
   }
 
+  if (error) {
+    return (
+      <div className="container mx-auto p-4 max-w-3xl">
+        <button className="btn btn-ghost mb-4" onClick={() => navigate('/')}>← Back</button>
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="btn btn-sm btn-ghost" onClick={load}>Retry</button>
+        </div>
+      </div>
+    )
+  }
+
   if (!todolist) {
-    return <div className="text-center py-12">Todolist not found</div>
+    return (
+      <div className="container mx-auto p-4 max-w-3xl">
+        <button className="btn btn-ghost mb-4" onClick={() => navigate('/')}>← Back</button>
+        <div className="text-center py-12">Todolist not found</div>
+      </div>
+    )
   }
 
   return (
