@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { createTask, deleteTask, getTodolist, listTasks, updateTask } from '../api/client'
+import { useTodolist } from '../hooks/useTodolists'
+import { useTasks, useCreateTask, useUpdateTask, useDeleteTask } from '../hooks/useTasks'
 import { TaskItem } from '../components/TaskItem'
 import { StatusBadge } from '../components/StatusBadge'
+import type { CreateTaskRequest, Task, UpdateTaskRequest } from '../types/api'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { CreateTaskRequest, Task, Todolist, UpdateTaskRequest } from '../types/api'
 
@@ -17,6 +19,11 @@ export function TodolistDetailPage() {
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [form, setForm] = useState<CreateTaskRequest & UpdateTaskRequest>({ title: '', description: '', status: 'pending' })
 
+  const { data: todolist, isLoading: todoLoading, error: todoError } = useTodolist(id!)
+  const { data: tasksData, isLoading: tasksLoading } = useTasks(id!)
+  const createMutation = useCreateTask(id!)
+  const updateMutation = useUpdateTask(id!)
+  const deleteMutation = useDeleteTask(id!)
   usePageTitle(todolist?.title ?? 'Todolist')
 
   const load = async () => {
@@ -34,8 +41,15 @@ export function TodolistDetailPage() {
     }
   }
 
-  useEffect(() => { load() }, [id])
+  const tasks = tasksData?.data ?? []
+  const loading = todoLoading || tasksLoading
 
+  const handleCreate = () => {
+    if (!form.title) return
+    createMutation.mutate({ title: form.title, description: form.description }, {
+      onSuccess: () => { setShowModal(false); setForm({ title: '', description: '', status: 'pending' }) },
+      onError: (e) => alert(e.message),
+    })
   const handleCreate = async () => {
     if (!id || !form.title) return
     try {
@@ -48,8 +62,12 @@ export function TodolistDetailPage() {
     }
   }
 
-  const handleUpdate = async () => {
+  const handleUpdate = () => {
     if (!editTask || !form.title) return
+    updateMutation.mutate({ id: editTask.id, body: { title: form.title, description: form.description, status: form.status } }, {
+      onSuccess: () => setEditTask(null),
+      onError: (e) => alert(e.message),
+    })
     try {
       await updateTask(editTask.id, { title: form.title, description: form.description, status: form.status })
       setEditTask(null)
@@ -59,9 +77,12 @@ export function TodolistDetailPage() {
     }
   }
 
-  const handleStatusChange = async (taskId: string, status: Task['status']) => {
+  const handleStatusChange = (taskId: string, status: Task['status']) => {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
+    updateMutation.mutate({ id: taskId, body: { title: task.title, description: task.description ?? '', status } }, {
+      onError: (e) => alert(e.message),
+    })
     try {
       await updateTask(taskId, { title: task.title, description: task.description ?? '', status })
       load()
@@ -70,8 +91,9 @@ export function TodolistDetailPage() {
     }
   }
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleDeleteTask = (taskId: string) => {
     if (!confirm('Delete this task?')) return
+    deleteMutation.mutate(taskId, { onError: (e) => alert(e.message) })
     try {
       await deleteTask(taskId)
       load()
@@ -89,6 +111,11 @@ export function TodolistDetailPage() {
     return <div className="flex justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>
   }
 
+  if (todoError) {
+    return (
+      <div className="container mx-auto p-4 max-w-3xl">
+        <button className="btn btn-ghost mb-4" onClick={() => navigate('/')}>← Back</button>
+        <div className="alert alert-error"><span>{todoError.message}</span></div>
   if (error) {
     return (
       <div className="container mx-auto p-4 max-w-3xl">

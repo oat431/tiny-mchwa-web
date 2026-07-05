@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useTodolists, useCreateTodolist, useUpdateTodolist, useDeleteTodolist } from '../hooks/useTodolists'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createTodolist, deleteTodolist, listTodolists, updateTodolist } from '../api/client'
@@ -11,6 +14,7 @@ export function TodolistsPage() {
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
   const sourceService = searchParams.get('sourceService') ?? ''
   const title = searchParams.get('title') ?? ''
+
   usePageTitle('Todolists')
 
   const [todolists, setTodolists] = useState<Todolist[]>([])
@@ -23,6 +27,41 @@ export function TodolistsPage() {
   const [filterTitle, setFilterTitle] = useState(title)
   const [filterSource, setFilterSource] = useState(sourceService)
 
+  const { data, isLoading, error, refetch } = useTodolists(page)
+  const createMutation = useCreateTodolist()
+  const updateMutation = useUpdateTodolist()
+  const deleteMutation = useDeleteTodolist()
+
+  const todolists = data?.data ?? []
+  const totalPages = data?.meta?.totalPages ?? 1
+
+  // Client-side filters
+  const filtered = todolists.filter(tl => {
+    if (title && !tl.title.toLowerCase().includes(title.toLowerCase())) return false
+    if (sourceService && tl.sourceService !== sourceService) return false
+    return true
+  })
+
+  const setPage = (p: number) => {
+    const params = new URLSearchParams(searchParams)
+    if (p <= 1) params.delete('page')
+    else params.set('page', String(p))
+    setSearchParams(params)
+  }
+
+  const applyFilters = () => {
+    const params = new URLSearchParams()
+    if (filterTitle) params.set('title', filterTitle)
+    if (filterSource) params.set('sourceService', filterSource)
+    params.set('page', '1')
+    setSearchParams(params)
+  }
+
+  const clearFilters = () => {
+    setFilterTitle('')
+    setFilterSource('')
+    setSearchParams({})
+  }
   const setPage = (p: number) => {
     const params = new URLSearchParams(searchParams)
     if (p <= 1) params.delete('page')
@@ -69,8 +108,12 @@ export function TodolistsPage() {
 
   useEffect(() => { load() }, [page, title, sourceService])
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (!form.title) return
+    createMutation.mutate(form, {
+      onSuccess: () => { setShowModal(false); setForm({ title: '', description: '', sourceService: 'todolist' }) },
+      onError: (e) => alert(e.message),
+    })
     try {
       await createTodolist(form)
       setShowModal(false)
@@ -81,8 +124,12 @@ export function TodolistsPage() {
     }
   }
 
-  const handleUpdate = async () => {
+  const handleUpdate = () => {
     if (!editItem || !form.title) return
+    updateMutation.mutate({ id: editItem.id, body: { title: form.title, description: form.description } }, {
+      onSuccess: () => setEditItem(null),
+      onError: (e) => alert(e.message),
+    })
     try {
       await updateTodolist(editItem.id, { title: form.title, description: form.description })
       setEditItem(null)
@@ -92,8 +139,9 @@ export function TodolistsPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!confirm('Delete this todolist?')) return
+    deleteMutation.mutate(id, { onError: (e) => alert(e.message) })
     try {
       await deleteTodolist(id)
       load()
@@ -126,6 +174,14 @@ export function TodolistsPage() {
 
       {error && (
         <div className="alert alert-error mb-4">
+          <span>{error.message}</span>
+          <button className="btn btn-sm btn-ghost" onClick={() => refetch()}>Retry</button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>
+      ) : filtered.length === 0 ? (
           <span>{error}</span>
           <button className="btn btn-sm btn-ghost" onClick={load}>Retry</button>
         </div>
@@ -139,7 +195,7 @@ export function TodolistsPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {todolists.map(tl => (
+          {filtered.map(tl => (
             <TodolistCard
               key={tl.id}
               todolist={tl}
