@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createTodolist, deleteTodolist, listTodolists, updateTodolist } from '../api/client'
 import { TodolistCard } from '../components/TodolistCard'
 import { usePageTitle } from '../hooks/usePageTitle'
@@ -7,23 +7,58 @@ import type { CreateTodolistRequest, Todolist } from '../types/api'
 
 export function TodolistsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
+  const sourceService = searchParams.get('sourceService') ?? ''
+  const title = searchParams.get('title') ?? ''
   usePageTitle('Todolists')
 
   const [todolists, setTodolists] = useState<Todolist[]>([])
-  const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<Todolist | null>(null)
   const [form, setForm] = useState<CreateTodolistRequest>({ title: '', description: '', sourceService: 'todolist' })
+  const [filterTitle, setFilterTitle] = useState(title)
+  const [filterSource, setFilterSource] = useState(sourceService)
+
+  const setPage = (p: number) => {
+    const params = new URLSearchParams(searchParams)
+    if (p <= 1) params.delete('page')
+    else params.set('page', String(p))
+    setSearchParams(params)
+  }
+
+  const applyFilters = () => {
+    const params = new URLSearchParams()
+    if (filterTitle) params.set('title', filterTitle)
+    if (filterSource) params.set('sourceService', filterSource)
+    params.set('page', '1')
+    setSearchParams(params)
+  }
+
+  const clearFilters = () => {
+    setFilterTitle('')
+    setFilterSource('')
+    setSearchParams({})
+  }
+
+  useEffect(() => {
+    document.title = 'Todolists — tiny mchwa'
+    return () => { document.title = 'tiny mchwa 🐜' }
+  }, [])
 
   const load = async () => {
     setLoading(true)
     setError(null)
     try {
       const { data, meta } = await listTodolists(page)
-      setTodolists(data)
+      // ponytail: client-side filter for title/sourceService since API only filters by status
+      let filtered = data
+      if (title) filtered = filtered.filter(tl => tl.title.toLowerCase().includes(title.toLowerCase()))
+      if (sourceService) filtered = filtered.filter(tl => tl.sourceService === sourceService)
+      setTodolists(filtered)
       setTotalPages(meta?.totalPages ?? 1)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load todolists')
@@ -32,7 +67,7 @@ export function TodolistsPage() {
     }
   }
 
-  useEffect(() => { load() }, [page])
+  useEffect(() => { load() }, [page, title, sourceService])
 
   const handleCreate = async () => {
     if (!form.title) return
@@ -81,6 +116,14 @@ export function TodolistsPage() {
         </button>
       </div>
 
+      {/* Filters */}
+      <div className="flex gap-2 mb-4">
+        <input className="input input-bordered input-sm flex-1" placeholder="Filter by title..." value={filterTitle} onChange={e => setFilterTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyFilters()} />
+        <input className="input input-bordered input-sm w-40" placeholder="Source service" value={filterSource} onChange={e => setFilterSource(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyFilters()} />
+        <button className="btn btn-sm btn-primary" onClick={applyFilters}>Filter</button>
+        {(title || sourceService) && <button className="btn btn-sm btn-ghost" onClick={clearFilters}>Clear</button>}
+      </div>
+
       {error && (
         <div className="alert alert-error mb-4">
           <span>{error}</span>
@@ -91,7 +134,9 @@ export function TodolistsPage() {
       {loading ? (
         <div className="flex justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>
       ) : todolists.length === 0 ? (
-        <div className="text-center py-12 text-base-content/50">No todolists yet. Create one!</div>
+        <div className="text-center py-12 text-base-content/50">
+          {title || sourceService ? 'No todolists match your filters' : 'No todolists yet. Create one!'}
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {todolists.map(tl => (
@@ -108,9 +153,9 @@ export function TodolistsPage() {
 
       {totalPages > 1 && (
         <div className="join flex justify-center mt-6">
-          <button className="join-item btn btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>«</button>
-          <button className="join-item btn btn-sm">Page {page}</button>
-          <button className="join-item btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>»</button>
+          <button className="join-item btn btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>«</button>
+          <button className="join-item btn btn-sm">Page {page} of {totalPages}</button>
+          <button className="join-item btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>»</button>
         </div>
       )}
 
