@@ -1,6 +1,7 @@
 @import "tailwindcss";
-@plugin "daisyui";
-
+@plugin "daisyui" {
+    themes: emerald --default;
+}
 body {
-  font-family: 'Niramit', sans-serif;
+    font-family: "Niramit", sans-serif;
 }
