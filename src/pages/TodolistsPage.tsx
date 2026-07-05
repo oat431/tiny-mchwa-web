@@ -2,26 +2,31 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createTodolist, deleteTodolist, listTodolists, updateTodolist } from '../api/client'
 import { TodolistCard } from '../components/TodolistCard'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { CreateTodolistRequest, Todolist } from '../types/api'
 
 export function TodolistsPage() {
   const navigate = useNavigate()
+  usePageTitle('Todolists')
+
   const [todolists, setTodolists] = useState<Todolist[]>([])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<Todolist | null>(null)
   const [form, setForm] = useState<CreateTodolistRequest>({ title: '', description: '', sourceService: 'todolist' })
 
   const load = async () => {
     setLoading(true)
+    setError(null)
     try {
       const { data, meta } = await listTodolists(page)
       setTodolists(data)
       setTotalPages(meta?.totalPages ?? 1)
     } catch (e) {
-      console.error(e)
+      setError(e instanceof Error ? e.message : 'Failed to load todolists')
     } finally {
       setLoading(false)
     }
@@ -31,23 +36,35 @@ export function TodolistsPage() {
 
   const handleCreate = async () => {
     if (!form.title) return
-    await createTodolist(form)
-    setShowModal(false)
-    setForm({ title: '', description: '', sourceService: 'todolist' })
-    load()
+    try {
+      await createTodolist(form)
+      setShowModal(false)
+      setForm({ title: '', description: '', sourceService: 'todolist' })
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create todolist')
+    }
   }
 
   const handleUpdate = async () => {
     if (!editItem || !form.title) return
-    await updateTodolist(editItem.id, { title: form.title, description: form.description })
-    setEditItem(null)
-    load()
+    try {
+      await updateTodolist(editItem.id, { title: form.title, description: form.description })
+      setEditItem(null)
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update todolist')
+    }
   }
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this todolist?')) return
-    await deleteTodolist(id)
-    load()
+    try {
+      await deleteTodolist(id)
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to delete todolist')
+    }
   }
 
   const openEdit = (tl: Todolist) => {
@@ -63,6 +80,13 @@ export function TodolistsPage() {
           + New Todolist
         </button>
       </div>
+
+      {error && (
+        <div className="alert alert-error mb-4">
+          <span>{error}</span>
+          <button className="btn btn-sm btn-ghost" onClick={load}>Retry</button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>
