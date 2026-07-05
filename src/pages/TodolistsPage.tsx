@@ -1,53 +1,77 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { createTodolist, deleteTodolist, listTodolists, updateTodolist } from '../api/client'
+import { useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useTodolists, useCreateTodolist, useUpdateTodolist, useDeleteTodolist } from '../hooks/useTodolists'
 import { TodolistCard } from '../components/TodolistCard'
 import type { CreateTodolistRequest, Todolist } from '../types/api'
 
 export function TodolistsPage() {
   const navigate = useNavigate()
-  const [todolists, setTodolists] = useState<Todolist[]>([])
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [loading, setLoading] = useState(true)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
+  const sourceService = searchParams.get('sourceService') ?? ''
+  const title = searchParams.get('title') ?? ''
+
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<Todolist | null>(null)
   const [form, setForm] = useState<CreateTodolistRequest>({ title: '', description: '', sourceService: 'todolist' })
+  const [filterTitle, setFilterTitle] = useState(title)
+  const [filterSource, setFilterSource] = useState(sourceService)
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const { data, meta } = await listTodolists(page)
-      setTodolists(data)
-      setTotalPages(meta?.totalPages ?? 1)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
+  const { data, isLoading, error, refetch } = useTodolists(page)
+  const createMutation = useCreateTodolist()
+  const updateMutation = useUpdateTodolist()
+  const deleteMutation = useDeleteTodolist()
+
+  const todolists = data?.data ?? []
+  const totalPages = data?.meta?.totalPages ?? 1
+
+  // Client-side filters
+  const filtered = todolists.filter(tl => {
+    if (title && !tl.title.toLowerCase().includes(title.toLowerCase())) return false
+    if (sourceService && tl.sourceService !== sourceService) return false
+    return true
+  })
+
+  const setPage = (p: number) => {
+    const params = new URLSearchParams(searchParams)
+    if (p <= 1) params.delete('page')
+    else params.set('page', String(p))
+    setSearchParams(params)
   }
 
-  useEffect(() => { load() }, [page])
+  const applyFilters = () => {
+    const params = new URLSearchParams()
+    if (filterTitle) params.set('title', filterTitle)
+    if (filterSource) params.set('sourceService', filterSource)
+    params.set('page', '1')
+    setSearchParams(params)
+  }
 
-  const handleCreate = async () => {
+  const clearFilters = () => {
+    setFilterTitle('')
+    setFilterSource('')
+    setSearchParams({})
+  }
+
+  const handleCreate = () => {
     if (!form.title) return
-    await createTodolist(form)
-    setShowModal(false)
-    setForm({ title: '', description: '', sourceService: 'todolist' })
-    load()
+    createMutation.mutate(form, {
+      onSuccess: () => { setShowModal(false); setForm({ title: '', description: '', sourceService: 'todolist' }) },
+      onError: (e) => alert(e.message),
+    })
   }
 
-  const handleUpdate = async () => {
+  const handleUpdate = () => {
     if (!editItem || !form.title) return
-    await updateTodolist(editItem.id, { title: form.title, description: form.description })
-    setEditItem(null)
-    load()
+    updateMutation.mutate({ id: editItem.id, body: { title: form.title, description: form.description } }, {
+      onSuccess: () => setEditItem(null),
+      onError: (e) => alert(e.message),
+    })
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!confirm('Delete this todolist?')) return
-    await deleteTodolist(id)
-    load()
+    deleteMutation.mutate(id, { onError: (e) => alert(e.message) })
   }
 
   const openEdit = (tl: Todolist) => {
@@ -64,13 +88,30 @@ export function TodolistsPage() {
         </button>
       </div>
 
-      {loading ? (
+      {/* Filters */}
+      <div className="flex gap-2 mb-4">
+        <input className="input input-bordered input-sm flex-1" placeholder="Filter by title..." value={filterTitle} onChange={e => setFilterTitle(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyFilters()} />
+        <input className="input input-bordered input-sm w-40" placeholder="Source service" value={filterSource} onChange={e => setFilterSource(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyFilters()} />
+        <button className="btn btn-sm btn-primary" onClick={applyFilters}>Filter</button>
+        {(title || sourceService) && <button className="btn btn-sm btn-ghost" onClick={clearFilters}>Clear</button>}
+      </div>
+
+      {error && (
+        <div className="alert alert-error mb-4">
+          <span>{error.message}</span>
+          <button className="btn btn-sm btn-ghost" onClick={() => refetch()}>Retry</button>
+        </div>
+      )}
+
+      {isLoading ? (
         <div className="flex justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>
-      ) : todolists.length === 0 ? (
-        <div className="text-center py-12 text-base-content/50">No todolists yet. Create one!</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12 text-base-content/50">
+          {title || sourceService ? 'No todolists match your filters' : 'No todolists yet. Create one!'}
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {todolists.map(tl => (
+          {filtered.map(tl => (
             <TodolistCard
               key={tl.id}
               todolist={tl}
@@ -84,9 +125,9 @@ export function TodolistsPage() {
 
       {totalPages > 1 && (
         <div className="join flex justify-center mt-6">
-          <button className="join-item btn btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>«</button>
-          <button className="join-item btn btn-sm">Page {page}</button>
-          <button className="join-item btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>»</button>
+          <button className="join-item btn btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>«</button>
+          <button className="join-item btn btn-sm">Page {page} of {totalPages}</button>
+          <button className="join-item btn btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>»</button>
         </div>
       )}
 
