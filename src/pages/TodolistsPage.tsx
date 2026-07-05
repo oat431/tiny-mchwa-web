@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createTodolist, deleteTodolist, listTodolists, updateTodolist } from '../api/client'
 import { TodolistCard } from '../components/TodolistCard'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { CreateTodolistRequest, Todolist } from '../types/api'
 
 export function TodolistsPage() {
@@ -10,6 +11,7 @@ export function TodolistsPage() {
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
   const sourceService = searchParams.get('sourceService') ?? ''
   const title = searchParams.get('title') ?? ''
+  usePageTitle('Todolists')
 
   const [todolists, setTodolists] = useState<Todolist[]>([])
   const [totalPages, setTotalPages] = useState(1)
