@@ -5,10 +5,16 @@ import { useTasks, useCreateTask, useUpdateTask, useDeleteTask } from '../hooks/
 import { TaskItem } from '../components/TaskItem'
 import { StatusBadge } from '../components/StatusBadge'
 import type { CreateTaskRequest, Task, UpdateTaskRequest } from '../types/api'
+import { usePageTitle } from '../hooks/usePageTitle'
+import type { CreateTaskRequest, Task, Todolist, UpdateTaskRequest } from '../types/api'
 
 export function TodolistDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [todolist, setTodolist] = useState<Todolist | null>(null)
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [form, setForm] = useState<CreateTaskRequest & UpdateTaskRequest>({ title: '', description: '', status: 'pending' })
@@ -18,6 +24,22 @@ export function TodolistDetailPage() {
   const createMutation = useCreateTask(id!)
   const updateMutation = useUpdateTask(id!)
   const deleteMutation = useDeleteTask(id!)
+  usePageTitle(todolist?.title ?? 'Todolist')
+
+  const load = async () => {
+    if (!id) return
+    setLoading(true)
+    setError(null)
+    try {
+      const [tl, { data }] = await Promise.all([getTodolist(id), listTasks(id)])
+      setTodolist(tl)
+      setTasks(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load todolist')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const tasks = tasksData?.data ?? []
   const loading = todoLoading || tasksLoading
@@ -28,6 +50,16 @@ export function TodolistDetailPage() {
       onSuccess: () => { setShowModal(false); setForm({ title: '', description: '', status: 'pending' }) },
       onError: (e) => alert(e.message),
     })
+  const handleCreate = async () => {
+    if (!id || !form.title) return
+    try {
+      await createTask(id, { title: form.title, description: form.description })
+      setShowModal(false)
+      setForm({ title: '', description: '', status: 'pending' })
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to create task')
+    }
   }
 
   const handleUpdate = () => {
@@ -36,6 +68,13 @@ export function TodolistDetailPage() {
       onSuccess: () => setEditTask(null),
       onError: (e) => alert(e.message),
     })
+    try {
+      await updateTask(editTask.id, { title: form.title, description: form.description, status: form.status })
+      setEditTask(null)
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update task')
+    }
   }
 
   const handleStatusChange = (taskId: string, status: Task['status']) => {
@@ -44,11 +83,23 @@ export function TodolistDetailPage() {
     updateMutation.mutate({ id: taskId, body: { title: task.title, description: task.description ?? '', status } }, {
       onError: (e) => alert(e.message),
     })
+    try {
+      await updateTask(taskId, { title: task.title, description: task.description ?? '', status })
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update task status')
+    }
   }
 
   const handleDeleteTask = (taskId: string) => {
     if (!confirm('Delete this task?')) return
     deleteMutation.mutate(taskId, { onError: (e) => alert(e.message) })
+    try {
+      await deleteTask(taskId)
+      load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to delete task')
+    }
   }
 
   const openEdit = (task: Task) => {
@@ -65,6 +116,14 @@ export function TodolistDetailPage() {
       <div className="container mx-auto p-4 max-w-3xl">
         <button className="btn btn-ghost mb-4" onClick={() => navigate('/')}>← Back</button>
         <div className="alert alert-error"><span>{todoError.message}</span></div>
+  if (error) {
+    return (
+      <div className="container mx-auto p-4 max-w-3xl">
+        <button className="btn btn-ghost mb-4" onClick={() => navigate('/')}>← Back</button>
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="btn btn-sm btn-ghost" onClick={load}>Retry</button>
+        </div>
       </div>
     )
   }
